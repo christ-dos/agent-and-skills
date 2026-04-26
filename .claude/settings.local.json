@@ -1,0 +1,34 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m py_compile travel_planner_gui.py)",
+      "Bash(grep -n \"^]$\" \"C:/Users/Kikine/Desktop/agent-and-skills/travel_planner.py\")",
+      "Bash(python -m py_compile travel_planner.py llm_client.py)",
+      "Bash(python -m py_compile run.py travel_planner.py travel_planner_gui.py llm_client.py document_generator.py)",
+      "Bash(python -m venv venv)",
+      "Bash(echo \"Exit code: $?\")",
+      "Bash(py --version)",
+      "Read(//c/Users/Kikine/AppData/Local/Programs/Python//**)",
+      "Bash(ls /c/Python*)",
+      "PowerShell(py *)",
+      "PowerShell(venv\\\\Scripts\\\\python.exe -m pip install -r requirements.txt 2>&1)",
+      "PowerShell(venv\\\\Scripts\\\\python.exe -m pip install --upgrade pip 2>&1)",
+      "Bash(ollama list *)",
+      "Bash(unzip -l rtk-x86_64-pc-windows-msvc.zip)",
+      "Bash(mkdir -p /c/Users/Kikine/AppData/Local/Programs/rtk)",
+      "Bash(unzip -o /c/Users/Kikine/Downloads/rtk-x86_64-pc-windows-msvc.zip -d /c/Users/Kikine/AppData/Local/Programs/rtk)",
+      "Bash(/c/Users/Kikine/AppData/Local/Programs/rtk/rtk.exe --version)",
+      "Bash(/c/Users/Kikine/AppData/Local/Programs/rtk/rtk.exe --help)",
+      "Bash(/c/Users/Kikine/AppData/Local/Programs/rtk/rtk.exe init *)",
+      "Bash(/c/Users/Kikine/AppData/Local/Programs/rtk/rtk.exe git *)",
+      "Bash(/c/Users/Kikine/AppData/Local/Programs/rtk/rtk.exe gain *)",
+      "Bash(rtk --version)",
+      "PowerShell(Get-Command *)",
+      "Bash(/c/Users/Kikine/AppData/Local/Programs/rtk/rtk.exe claude *)",
+      "Skill(update-config)",
+      "Bash(/c/Users/Kikine/AppData/Local/Programs/rtk/rtk.exe hook *)",
+      "PowerShell($json = Get-Content \"C:\\\\Users\\\\Kikine\\\\.claude\\\\settings.json\" -Raw | ConvertFrom-Json; $json.hooks.PreToolUse[0].hooks[0].command)",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('travel_planner_gui.py'\\).read\\(\\)\\); print\\('Syntaxe OK'\\)\")"
+    ]
+  }
+}
