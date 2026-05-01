@@ -2,9 +2,62 @@
 
 import re
 import unicodedata
+import datetime as _dt
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Any
+
+
+_JOURS_FR = {
+    0: 'LUNDI', 1: 'MARDI', 2: 'MERCREDI', 3: 'JEUDI',
+    4: 'VENDREDI', 5: 'SAMEDI', 6: 'DIMANCHE',
+}
+_DAY_NAMES_PATTERN = '|'.join(_JOURS_FR.values())
+
+# Format 1 : "VENDREDI 14/05" ou "VENDREDI 14/05/2026"
+_DAY_BEFORE_RE = re.compile(
+    rf'\b({_DAY_NAMES_PATTERN})\s+(\d{{1,2}})/(\d{{1,2}})(?:/\d{{2,4}})?\b',
+    re.IGNORECASE,
+)
+# Format 2 : "14/05/2026 (Vendredi)" ou "14/05 (Vendredi)" — Mistral
+_DAY_AFTER_RE = re.compile(
+    rf'\b(\d{{1,2}})/(\d{{1,2}})(?:/\d{{2,4}})?\s*\(({_DAY_NAMES_PATTERN})\)',
+    re.IGNORECASE,
+)
+
+
+def fix_day_names(text: str, year: int = None) -> str:
+    """Replace incorrect day-of-week names with the real ones for the given year."""
+    if year is None:
+        m = re.search(r'\b(202[3-9]|203\d)\b', text)
+        year = int(m.group(1)) if m else _dt.date.today().year
+
+    def _correct(day_num, month_num):
+        try:
+            return _JOURS_FR[_dt.date(year, month_num, day_num).weekday()]
+        except ValueError:
+            return None
+
+    def _replace_before(m):
+        # "VENDREDI 14/05" → groupe 1=jour, 2=day, 3=month
+        correct = _correct(int(m.group(2)), int(m.group(3)))
+        if correct is None:
+            return m.group(0)
+        return m.group(0).replace(m.group(1), correct, 1)
+
+    def _replace_after(m):
+        # "14/05/2026 (Vendredi)" → groupe 1=day, 2=month, 3=jour
+        correct = _correct(int(m.group(1)), int(m.group(2)))
+        if correct is None:
+            return m.group(0)
+        # Preserve original capitalisation style of the day name
+        wrong = m.group(3)
+        replacement = correct.capitalize() if wrong[0].islower() or wrong[0].isupper() and wrong[1:].islower() else correct
+        return m.group(0).replace(wrong, replacement, 1)
+
+    text = _DAY_BEFORE_RE.sub(_replace_before, text)
+    text = _DAY_AFTER_RE.sub(_replace_after, text)
+    return text
 
 
 DESTINATION_COLORS = {
@@ -69,23 +122,48 @@ PPR_ORDER = [
 
 
 def extract_plan_from_conversation(conversation_history: List[Dict]) -> str:
-    """Extract the LAST assistant text message (the complete planning)."""
+    """Find the most recent assistant message that contains a planning block.
+
+    Scans backwards, returns text trimmed to start at 'VOYAGE À' so that
+    any short preamble ('Je vais maintenant…') is stripped.
+    Falls back to the longest assistant text if no planning marker is found.
+    """
+    voyage_re = re.compile(r'VOYAGE\s+[AÀ]\s+', re.IGNORECASE)
+    fallback = ""
+
+    def _extract_text(msg) -> str:
+        content = msg.get("content")
+        if isinstance(content, list):
+            for block in content:
+                t = ""
+                if hasattr(block, 'text') and getattr(block, 'type', None) == 'text':
+                    t = block.text
+                elif isinstance(block, dict) and block.get('type') == 'text':
+                    t = block.get('text', '')
+                if t.strip():
+                    return t.strip()
+            return ""
+        if isinstance(content, str):
+            return content.strip()
+        return ""
+
     for msg in reversed(conversation_history):
         if msg.get("role") != "assistant":
             continue
-        content = msg.get("content")
-        if isinstance(content, list):
-            for block in reversed(content):
-                if hasattr(block, 'text') and getattr(block, 'type', None) == 'text':
-                    if block.text.strip():
-                        return block.text
-                elif isinstance(block, dict) and block.get('type') == 'text':
-                    text = block.get('text', '').strip()
-                    if text:
-                        return text
-        elif isinstance(content, str) and content.strip():
-            return content
-    return ""
+        text = _extract_text(msg)
+        if not text:
+            continue
+
+        m = voyage_re.search(text)
+        if m:
+            # Trim preamble — return from VOYAGE À onward
+            return text[m.start():].strip()
+
+        # Keep the longest non-planning text as fallback
+        if len(text) > len(fallback):
+            fallback = text
+
+    return fallback
 
 
 class DocumentGenerator:
@@ -163,13 +241,33 @@ class DocumentGenerator:
         output_dir = Path("output") / dest_slug
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        filename = (
-            f"planning_{dest_slug}.docx" if step == 1
-            else f"planning_{dest_slug}_complet.docx"
-        )
-        doc_path = output_dir / filename
+        base_name = f"planning_{dest_slug}" if step == 1 else f"planning_{dest_slug}_complet"
+        # Avoid overwriting existing files: append numeric suffix if needed
+        candidate = output_dir / f"{base_name}.docx"
+        counter = 1
+        while candidate.exists():
+            candidate = output_dir / f"{base_name}_{counter}.docx"
+            counter += 1
+        doc_path = candidate
+
+        md_path = output_dir / "planning.md"
+        plan_text_final = planning_text
+
+        # Toujours prioritiser le planning.md (source de vérité du planning validé)
+        if md_path.exists():
+            try:
+                md_content = md_path.read_text(encoding="utf-8")
+                m = re.search(r'## Plan détaillé\s*\n(.*?)(?=\n## |\Z)', md_content, re.S)
+                if m:
+                    section = m.group(1).strip()
+                    if section:
+                        plan_text_final = section
+            except Exception:
+                pass
+
+        plan_text_final = fix_day_names(plan_text_final)
         colors = self._get_colors(destination)
-        self._build_word_doc(planning_text, destination, colors, doc_path, step)
+        self._build_word_doc(plan_text_final, destination, colors, doc_path, step)
         return str(doc_path)
 
     def _build_word_doc(self, text: str, destination: str, colors: dict, path: Path, step: int) -> None:
@@ -275,6 +373,8 @@ class DocumentGenerator:
         i = 0
         in_info_banner = False
         info_lines: list = []
+        in_pensebete = False
+        pensebete_lines: list = []
 
         def flush_info_banner():
             nonlocal in_info_banner, info_lines
@@ -293,6 +393,13 @@ class DocumentGenerator:
             in_info_banner = False
             info_lines = []
 
+        def flush_pensebete():
+            nonlocal in_pensebete, pensebete_lines
+            if pensebete_lines:
+                self._render_pensebete_box(doc, pensebete_lines)
+            in_pensebete = False
+            pensebete_lines = []
+
         while i < len(lines):
             raw     = lines[i]
             stripped = raw.strip()
@@ -300,10 +407,24 @@ class DocumentGenerator:
 
             # ── empty line ──────────────────────────────────────────
             if not stripped:
-                if in_info_banner:
-                    pass  # absorb blanks inside banner
+                if in_info_banner or in_pensebete:
+                    pass  # absorb blanks inside banner / pense-bête
                 else:
                     doc.add_paragraph()
+                continue
+
+            # ── pense-bête header (must precede sep_re check) ───────
+            if 'PENSE-BÊTE' in stripped.upper() or 'PENSE-BETE' in stripped.upper():
+                in_pensebete = True
+                pensebete_lines = []
+                continue
+
+            # ── pense-bête content / close ──────────────────────────
+            if in_pensebete:
+                if sep_re.match(stripped):
+                    flush_pensebete()
+                else:
+                    pensebete_lines.append(stripped)
                 continue
 
             # ── section separators (═══ / ───) ─────────────────────
@@ -410,9 +531,45 @@ class DocumentGenerator:
             p = doc.add_paragraph()
             self._write_text_with_links(p, stripped)
 
-        # flush any unclosed banner
+        # flush any unclosed banner / pense-bête
         if in_info_banner:
             flush_info_banner()
+        if in_pensebete:
+            flush_pensebete()
+
+    def _render_pensebete_box(self, doc, lines: list) -> None:
+        """Render pense-bête lines as a yellow-background single-cell table."""
+        from docx.shared import Pt, Inches
+        from docx.oxml.ns import qn
+        from docx.oxml import OxmlElement
+
+        table = doc.add_table(rows=1, cols=1)
+        table.style = 'Table Grid'
+        cell = table.rows[0].cells[0]
+
+        # Yellow fill on the cell
+        tc = cell._tc
+        tcPr = tc.get_or_add_tcPr()
+        shd = OxmlElement('w:shd')
+        shd.set(qn('w:val'), 'clear')
+        shd.set(qn('w:color'), 'auto')
+        shd.set(qn('w:fill'), 'FFF8E1')
+        tcPr.append(shd)
+
+        # Clear the default empty paragraph
+        cell.paragraphs[0]._element.getparent().remove(cell.paragraphs[0]._element)
+
+        for line in lines:
+            if not line:
+                continue
+            p = cell.add_paragraph()
+            p.paragraph_format.space_before = Pt(2)
+            p.paragraph_format.space_after = Pt(2)
+            self._write_text_with_links(p, line)
+            for run in p.runs:
+                run.font.size = Pt(10)
+
+        doc.add_paragraph()  # spacing after box
 
     def _render_md_table(self, doc, table_lines: list, colors: dict) -> None:
         """Convert markdown table lines into a styled Word table."""

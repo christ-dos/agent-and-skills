@@ -28,7 +28,16 @@
       "Skill(update-config)",
       "Bash(/c/Users/Kikine/AppData/Local/Programs/rtk/rtk.exe hook *)",
       "PowerShell($json = Get-Content \"C:\\\\Users\\\\Kikine\\\\.claude\\\\settings.json\" -Raw | ConvertFrom-Json; $json.hooks.PreToolUse[0].hooks[0].command)",
-      "Bash(python -c \"import ast; ast.parse\\(open\\('travel_planner_gui.py'\\).read\\(\\)\\); print\\('Syntaxe OK'\\)\")"
+      "Bash(python -c \"import ast; ast.parse\\(open\\('travel_planner_gui.py'\\).read\\(\\)\\); print\\('Syntaxe OK'\\)\")",
+      "Bash(rtk read *)",
+      "Bash(/c/Users/Kikine/AppData/Local/Programs/rtk/rtk.exe curl *)",
+      "Bash(/c/Users/Kikine/AppData/Local/Programs/rtk/rtk.exe docker *)",
+      "Bash(rtk docker *)",
+      "Bash(docker restart *)",
+      "Bash(rtk curl *)",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(f'OK — {len\\(d.get\\(\\\\\"results\\\\\",[]\\)\\)} résultats'\\)\")",
+      "Bash(python -c \"import json; d=json.load\\(open\\('/tmp/searxng_test.json'\\)\\); print\\(f'OK — {len\\(d.get\\(\\\\\"results\\\\\",[]\\)\\)} résultats'\\)\")",
+      "Bash(python -c \"import travel_planner_gui\")"
     ]
   }
 }
